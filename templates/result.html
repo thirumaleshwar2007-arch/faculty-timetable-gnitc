@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Timetable for {{ name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        body { background: #f8f9fa; padding: 20px; }
+        .timetable-card { background: white; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .table th { background: #667eea; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="timetable-card p-4">
+                    <!-- Header -->
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div>
+                            <h2 class="text-primary">
+                                <i class="bi bi-calendar-week"></i>
+                                {% if data %}Timetable for <span class="text-dark">{{ name }}</span>
+                                {% else %}Search Results{% endif %}
+                            </h2>
+                            {% if count %}
+                            <p class="text-muted">{{ count }} classes found</p>
+                            {% endif %}
+                        </div>
+                        <a href="/" class="btn btn-outline-primary">
+                            <i class="bi bi-house"></i> Home
+                        </a>
+                    </div>
+                    
+                    {% if error %}
+                    <!-- Error Message -->
+                    <div class="alert alert-danger">
+                        <h4><i class="bi bi-exclamation-triangle"></i> {{ error }}</h4>
+                        
+                        {% if suggestions %}
+                        <hr>
+                        <p>Did you mean:</p>
+                        <ul>
+                            {% for suggestion in suggestions %}
+                            <li>
+                                <form action="/search" method="post" style="display: inline;">
+                                    <input type="hidden" name="faculty" value="{{ suggestion }}">
+                                    <button type="submit" class="btn btn-link p-0">
+                                        {{ suggestion }}
+                                    </button>
+                                </form>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if data %}
+                    <!-- Timetable Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Day</th>
+                                    <th>Period</th>
+                                    <th>Class</th>
+                                    <th>Subject</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in data %}
+                                <tr>
+                                    <td><strong>{{ row.Day }}</strong></td>
+                                    <td>{{ row.Period }}</td>
+                                    <td>{{ row.Class }}</td>
+                                    <td>{{ row.Subject }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Summary -->
+                    <div class="alert alert-info mt-3">
+                        <i class="bi bi-info-circle"></i>
+                        This is your complete schedule. Print or save for reference.
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Back Button -->
+                    <div class="text-center mt-4">
+                        <a href="/" class="btn btn-primary">
+                            <i class="bi bi-search"></i> Search Another
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
