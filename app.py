@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session
 import pandas as pd
 import os
+import json
 
 app = Flask(__name__)
 app.secret_key = "test123"
@@ -64,6 +65,29 @@ def upload():
 def logout():
     session.pop("admin", None)
     return redirect("/")
+
+# Add this route - place it after your other routes
+@app.route("/api/faculty_list")
+def get_faculty_list():
+    """API endpoint to get all faculty names for autocomplete"""
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], "timetable.xlsx")
+    
+    if not os.path.exists(filepath):
+        return json.dumps([])
+    
+    try:
+        df = pd.read_excel(filepath)
+        # Get unique faculty names, remove NaN, sort alphabetically
+        faculty_list = df['Faculty'].dropna().unique()
+        faculty_list = [str(name).strip() for name in faculty_list if str(name).strip()]
+        faculty_list.sort()
+        
+        return json.dumps(faculty_list[:50])  # Limit to 50 names
+        
+    except Exception as e:
+        print(f"Error in faculty_list API: {e}")
+        return json.dumps([])
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
