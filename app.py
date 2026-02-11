@@ -1,16 +1,32 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import pandas as pd
 import os
 import json
+import tempfile
 
 app = Flask(__name__)
-app.secret_key = "test123"
+app.secret_key = "test123"  # Change this in production!
 
-UPLOAD_FOLDER = "uploads"
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# ============= RAILWAY CONFIGURATION =============
+# Get port from Railway environment
+port = int(os.environ.get("PORT", 5001))
+
+# Handle uploads for Railway vs Local
+if os.environ.get('RAILWAY_ENVIRONMENT'):
+    # On Railway - use temp directory (files are temporary)
+    UPLOAD_FOLDER = tempfile.gettempdir()
+    print(f"🚂 Running on Railway - using temp folder: {UPLOAD_FOLDER}")
+else:
+    # On local computer - use uploads folder
+    UPLOAD_FOLDER = "uploads"
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+    print(f"💻 Running locally - using folder: {UPLOAD_FOLDER}")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+# ============= YOUR EXISTING CODE (PRESERVED) =============
 ADMIN_PASSWORD = "gnit123"
 
 def convert_college_excel(filepath):
@@ -202,6 +218,7 @@ def get_subject_name(code):
             return full
     
     return code  # Return as-is if not found
+
 @app.route("/")
 def home():
     return render_template("home.html")
@@ -335,15 +352,26 @@ def upload():
             }
             faculty_list = df['Faculty'].unique()[:10]
         else:
-            # Try to auto-convert (simplified version for now)
-            # You can add the full auto-conversion logic here later
-            stats = {
-                'faculty_count': 'Auto-detected',
-                'total_classes': len(df),
-                'classes': 'Multiple',
-                'subjects': 'Multiple'
-            }
-            faculty_list = ['Auto-conversion active']
+            # Try to auto-convert
+            converted_df = convert_college_excel(filepath)
+            if converted_df is not None:
+                # Save the converted version
+                converted_df.to_excel(filepath, index=False)
+                stats = {
+                    'faculty_count': converted_df['Faculty'].nunique(),
+                    'total_classes': len(converted_df),
+                    'classes': converted_df['Class'].nunique(),
+                    'subjects': converted_df['Subject'].nunique()
+                }
+                faculty_list = converted_df['Faculty'].unique()[:10]
+            else:
+                stats = {
+                    'faculty_count': 'Auto-detected',
+                    'total_classes': len(df),
+                    'classes': 'Multiple',
+                    'subjects': 'Multiple'
+                }
+                faculty_list = ['Auto-conversion active']
         
         return render_template("upload_success.html", 
                              stats=stats,
@@ -357,7 +385,6 @@ def logout():
     session.pop("admin", None)
     return redirect("/")
 
-# Add this route - place it after your other routes
 @app.route("/api/faculty_list")
 def get_faculty_list():
     """API endpoint to get all faculty names for autocomplete"""
@@ -379,6 +406,13 @@ def get_faculty_list():
         print(f"Error in faculty_list API: {e}")
         return json.dumps([])
 
+# ============= RAILWAY COMPATIBILITY =============
+@app.route('/health')
+def health():
+    """Health check endpoint for Railway"""
+    return jsonify({"status": "healthy"}), 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    print(f"🚀 Starting Faculty Scheduler on port {port}")
+    print(f"📁 Upload folder: {UPLOAD_FOLDER}")
+    app.run(host="0.0.0.0", port=port, debug=False)  # Set debug=False for production
