@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import json
 import tempfile
+import traceback
 
 app = Flask(__name__)
 app.secret_key = "test123"  # Change this in production!
@@ -68,12 +69,10 @@ def convert_from_college_format(filepath):
     """Convert from GNITC college format (multiple sheets)"""
     try:
         # Read both sheets
+        xl = pd.ExcelFile(filepath)
         timetable_df = pd.read_excel(filepath, sheet_name=0)  # Timetable sheet
-        faculty_df = pd.read_excel(filepath, sheet_name=1)    # Faculty sheet
         
         # ===== 1. CREATE FACULTY MAPPING =====
-        faculty_mapping = {}
-        
         # Map subject codes to faculty (simplified mapping)
         mapping = {
             'DM': 'Mrs. Y.Sindhura',
@@ -89,39 +88,45 @@ def convert_from_college_format(filepath):
         # ===== 2. PARSE TIMETABLE MATRIX =====
         rows = []
         days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        day_codes = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
         
         # Find the timetable data (skip headers)
-        # Look for day names in first column
         for idx, row in timetable_df.iterrows():
-            first_cell = str(row.iloc[0]).strip().upper() if len(row) > 0 else ""
-            
-            if first_cell in ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']:
-                day_index = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].index(first_cell)
-                day_name = days[day_index]
+            if len(row) > 0:
+                first_cell = str(row.iloc[0]).strip().upper() if pd.notna(row.iloc[0]) else ""
                 
-                # Get subjects for periods 1-4
-                for period in range(1, 5):
-                    if period < len(row):
-                        subject_code = str(row.iloc[period]).strip()
-                        
-                        if subject_code and subject_code != 'nan':
-                            # Map subject code to faculty
-                            faculty = None
-                            for code, fac in mapping.items():
-                                if code in subject_code:
-                                    faculty = fac
-                                    break
-                            
-                            if faculty:
-                                rows.append({
-                                    'Faculty': faculty,
-                                    'Day': day_name,
-                                    'Period': period,
-                                    'Class': 'CSE-CYBER-II-B',  # Default, can be configured
-                                    'Subject': get_subject_name(subject_code)
-                                })
+                if first_cell in day_codes:
+                    day_index = day_codes.index(first_cell)
+                    day_name = days[day_index]
+                    
+                    # Get subjects for periods 1-6
+                    for period in range(1, 7):  # Periods 1-6
+                        if period < len(row):
+                            cell_value = row.iloc[period]
+                            if pd.notna(cell_value):
+                                subject_code = str(cell_value).strip()
+                                
+                                if subject_code and subject_code != 'nan':
+                                    # Map subject code to faculty
+                                    faculty = None
+                                    for code, fac in mapping.items():
+                                        if code in subject_code:
+                                            faculty = fac
+                                            break
+                                    
+                                    if faculty:
+                                        rows.append({
+                                            'Faculty': faculty,
+                                            'Day': day_name,
+                                            'Period': period,
+                                            'Class': 'CSE-CYBER-II-B',
+                                            'Subject': get_subject_name(subject_code)
+                                        })
         
-        return pd.DataFrame(rows)
+        if rows:
+            return pd.DataFrame(rows)
+        else:
+            return None
         
     except Exception as e:
         print(f"Error converting college format: {e}")
@@ -136,9 +141,11 @@ def convert_from_matrix_format(filepath):
         # Find day column (contains MON, TUE, etc.)
         day_column = None
         for col in df.columns:
-            if any(day in str(df[col].iloc[0]).upper() for day in ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']):
-                day_column = col
-                break
+            first_val = df[col].iloc[0] if len(df) > 0 else ""
+            if pd.notna(first_val):
+                if any(day in str(first_val).upper() for day in ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']):
+                    day_column = col
+                    break
         
         if not day_column:
             return None
@@ -148,7 +155,7 @@ def convert_from_matrix_format(filepath):
             'THU': 'Thursday', 'FRI': 'Friday', 'SAT': 'Saturday'
         }
         
-        # Faculty mapping (you can make this configurable later)
+        # Faculty mapping
         faculty_mapping = {
             'DM': 'Mrs. Y.Sindhura',
             'BEFA': 'Mr. N. Srikanth',
@@ -162,39 +169,49 @@ def convert_from_matrix_format(filepath):
         
         # Process each row
         for idx, row in df.iterrows():
-            day_code = str(row[day_column]).strip().upper()
+            day_code = str(row[day_column]).strip().upper() if pd.notna(row[day_column]) else ""
             if day_code in days_map:
                 day_name = days_map[day_code]
                 
                 # Check each column for subject codes
                 for col in df.columns:
                     if col != day_column:
-                        subject_code = str(row[col]).strip()
-                        if subject_code and subject_code != 'nan':
-                            # Get period from column name or position
-                            period = 1  # Default
-                            if '1' in str(col):
-                                period = 1
-                            elif '2' in str(col):
-                                period = 2
-                            elif '3' in str(col):
-                                period = 3
-                            elif '4' in str(col):
-                                period = 4
-                            
-                            # Map to faculty
-                            for code, faculty in faculty_mapping.items():
-                                if code in subject_code:
-                                    rows.append({
-                                        'Faculty': faculty,
-                                        'Day': day_name,
-                                        'Period': period,
-                                        'Class': 'CSE-CYBER-II-B',
-                                        'Subject': get_subject_name(subject_code)
-                                    })
-                                    break
+                        cell_value = row[col]
+                        if pd.notna(cell_value):
+                            subject_code = str(cell_value).strip()
+                            if subject_code and subject_code != 'nan':
+                                # Get period from column name or position
+                                period = 1  # Default
+                                col_str = str(col)
+                                if '1' in col_str:
+                                    period = 1
+                                elif '2' in col_str:
+                                    period = 2
+                                elif '3' in col_str:
+                                    period = 3
+                                elif '4' in col_str:
+                                    period = 4
+                                elif '5' in col_str:
+                                    period = 5
+                                elif '6' in col_str:
+                                    period = 6
+                                
+                                # Map to faculty
+                                for code, faculty in faculty_mapping.items():
+                                    if code in subject_code:
+                                        rows.append({
+                                            'Faculty': faculty,
+                                            'Day': day_name,
+                                            'Period': period,
+                                            'Class': 'CSE-CYBER-II-B',
+                                            'Subject': get_subject_name(subject_code)
+                                        })
+                                        break
         
-        return pd.DataFrame(rows)
+        if rows:
+            return pd.DataFrame(rows)
+        else:
+            return None
         
     except Exception as e:
         print(f"Error converting matrix format: {e}")
@@ -237,6 +254,14 @@ def search():
     
     try:
         df = pd.read_excel(filepath)
+        
+        # Check if Faculty column exists
+        if 'Faculty' not in df.columns:
+            return render_template("result.html",
+                                 error="❌ Invalid timetable format. Please upload a valid timetable.",
+                                 name=name,
+                                 has_timetable=True)
+        
         df["Faculty"] = df["Faculty"].astype(str).str.strip()
         
         # GNITC specific: Handle different name formats
@@ -244,20 +269,20 @@ def search():
         search_name_lower = name.lower()
         
         # Try different search patterns
-        filtered = df[
-            df["Faculty"].str.lower().str.contains(search_name_lower) |
-            df["Faculty"].str.lower().str.replace(".", "").str.replace(" ", "").str.contains(search_name_lower.replace(" ", ""))
-        ]
+        mask = df["Faculty"].str.lower().str.contains(search_name_lower, na=False)
+        
+        filtered = df[mask]
         
         if len(filtered) == 0:
             # Get suggestions
             all_faculty = df["Faculty"].unique()
             suggestions = []
             for faculty in all_faculty:
-                faculty_lower = faculty.lower()
-                if (search_name_lower in faculty_lower or 
-                    search_name_lower in faculty_lower.replace(".", "").replace(" ", "")):
-                    suggestions.append(faculty)
+                if pd.notna(faculty):
+                    faculty_lower = faculty.lower()
+                    if (search_name_lower in faculty_lower or 
+                        search_name_lower in faculty_lower.replace(".", "").replace(" ", "")):
+                        suggestions.append(faculty)
             
             return render_template("result.html",
                                  error=f"❌ No timetable found for '{name}'",
@@ -287,6 +312,7 @@ def search():
                              has_timetable=True)
         
     except Exception as e:
+        print(f"Search error: {traceback.format_exc()}")
         return render_template("result.html",
                              error=f"⚠️ Error: {str(e)}",
                              name=name,
@@ -342,42 +368,53 @@ def upload():
         df = pd.read_excel(filepath)
         
         # Check if it's already in app format
-        if all(col in df.columns for col in ['Faculty', 'Day', 'Period', 'Class', 'Subject']):
+        required_columns = ['Faculty', 'Day', 'Period', 'Class', 'Subject']
+        
+        # Check if columns exist - FIXED VERSION
+        columns_exist = []
+        for col in required_columns:
+            columns_exist.append(col in df.columns)
+        
+        if all(columns_exist):  # This works because it's a list of booleans
             # Already in correct format
             stats = {
-                'faculty_count': df['Faculty'].nunique(),
+                'faculty_count': int(df['Faculty'].nunique()),
                 'total_classes': len(df),
-                'classes': df['Class'].nunique(),
-                'subjects': df['Subject'].nunique()
+                'classes': int(df['Class'].nunique()),
+                'subjects': int(df['Subject'].nunique())
             }
-            faculty_list = df['Faculty'].unique()[:10]
+            faculty_list = df['Faculty'].dropna().unique()[:10]
+            faculty_list = [str(name) for name in faculty_list if pd.notna(name) and str(name).strip()]
         else:
             # Try to auto-convert
             converted_df = convert_college_excel(filepath)
-            if converted_df is not None:
+            if converted_df is not None and len(converted_df) > 0:
                 # Save the converted version
                 converted_df.to_excel(filepath, index=False)
                 stats = {
-                    'faculty_count': converted_df['Faculty'].nunique(),
+                    'faculty_count': int(converted_df['Faculty'].nunique()),
                     'total_classes': len(converted_df),
-                    'classes': converted_df['Class'].nunique(),
-                    'subjects': converted_df['Subject'].nunique()
+                    'classes': int(converted_df['Class'].nunique()),
+                    'subjects': int(converted_df['Subject'].nunique())
                 }
-                faculty_list = converted_df['Faculty'].unique()[:10]
+                faculty_list = converted_df['Faculty'].dropna().unique()[:10]
+                faculty_list = [str(name) for name in faculty_list if pd.notna(name) and str(name).strip()]
             else:
                 stats = {
-                    'faculty_count': 'Auto-detected',
+                    'faculty_count': 0,
                     'total_classes': len(df),
-                    'classes': 'Multiple',
-                    'subjects': 'Multiple'
+                    'classes': 0,
+                    'subjects': 0
                 }
-                faculty_list = ['Auto-conversion active']
+                faculty_list = ['Format not recognized - using basic upload']
         
         return render_template("upload_success.html", 
                              stats=stats,
                              faculty_list=faculty_list)
         
     except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"Error in upload: {error_details}")
         return f"Error processing file: {str(e)}"
 
 @app.route("/logout")
@@ -395,9 +432,21 @@ def get_faculty_list():
     
     try:
         df = pd.read_excel(filepath)
+        
+        # Check if Faculty column exists
+        if 'Faculty' not in df.columns:
+            return json.dumps([])
+        
         # Get unique faculty names, remove NaN, sort alphabetically
-        faculty_list = df['Faculty'].dropna().unique()
-        faculty_list = [str(name).strip() for name in faculty_list if str(name).strip()]
+        faculty_series = df['Faculty'].dropna()
+        faculty_list = []
+        
+        for name in faculty_series:
+            if pd.notna(name):
+                faculty_list.append(str(name).strip())
+        
+        # Remove duplicates by converting to set then back to list
+        faculty_list = list(set(faculty_list))
         faculty_list.sort()
         
         return json.dumps(faculty_list[:50])  # Limit to 50 names
@@ -415,4 +464,5 @@ def health():
 if __name__ == "__main__":
     print(f"🚀 Starting Faculty Scheduler on port {port}")
     print(f"📁 Upload folder: {UPLOAD_FOLDER}")
-    app.run(host="0.0.0.0", port=port, debug=False)  # Set debug=False for production
+    print(f"🔑 Admin login: /admin")
+    app.run(host="0.0.0.0", port=port, debug=False)
