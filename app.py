@@ -19,8 +19,72 @@ def home():
 
 @app.route("/search", methods=["POST"])
 def search():
-    name = request.form["faculty"]
-    return f"Searching for: {name} (Feature will work after upload)"
+    name = request.form["faculty"].strip()
+    
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], "timetable.xlsx")
+    
+    if not os.path.exists(filepath):
+        return render_template("result.html", 
+                             error="📭 No timetable uploaded yet. Contact HOD.",
+                             name=name,
+                             has_timetable=False)
+    
+    try:
+        df = pd.read_excel(filepath)
+        df["Faculty"] = df["Faculty"].astype(str).str.strip()
+        
+        # GNITC specific: Handle different name formats
+        # Search for partial matches (e.g., "Saleem" finds "Mr. MD. Saleem")
+        search_name_lower = name.lower()
+        
+        # Try different search patterns
+        filtered = df[
+            df["Faculty"].str.lower().str.contains(search_name_lower) |
+            df["Faculty"].str.lower().str.replace(".", "").str.replace(" ", "").str.contains(search_name_lower.replace(" ", ""))
+        ]
+        
+        if len(filtered) == 0:
+            # Get suggestions
+            all_faculty = df["Faculty"].unique()
+            suggestions = []
+            for faculty in all_faculty:
+                faculty_lower = faculty.lower()
+                if (search_name_lower in faculty_lower or 
+                    search_name_lower in faculty_lower.replace(".", "").replace(" ", "")):
+                    suggestions.append(faculty)
+            
+            return render_template("result.html",
+                                 error=f"❌ No timetable found for '{name}'",
+                                 suggestions=suggestions[:5],
+                                 name=name,
+                                 has_timetable=True)
+        
+        data = filtered.to_dict(orient="records")
+        
+        # Add period times for GNITC
+        period_times = {
+            1: "9:10-10:10",
+            2: "10:10-11:10", 
+            3: "11:10-12:10",
+            4: "12:10-1:10",
+            5: "2:00-3:00",
+            6: "3:00-4:00"
+        }
+        
+        for row in data:
+            row['Time'] = period_times.get(row['Period'], 'N/A')
+        
+        return render_template("result.html",
+                             data=data,
+                             name=name,
+                             count=len(data),
+                             has_timetable=True)
+        
+    except Exception as e:
+        return render_template("result.html",
+                             error=f"⚠️ Error: {str(e)}",
+                             name=name,
+                             has_timetable=True)
 
 @app.route("/admin")
 def admin():
